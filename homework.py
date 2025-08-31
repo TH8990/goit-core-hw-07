@@ -6,7 +6,10 @@ def input_error(func):
     def inner(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except (ValueError, IndexError, KeyError) as e:
+        except (ValueError, IndexError, KeyError, AttributeError) as e:
+            # Змінено: повертаємо конкретне повідомлення для KeyError та AttributeError.
+            if isinstance(e, (KeyError, AttributeError)):
+                return "Контакт не знайдено."
             return str(e)
     return inner
 
@@ -30,12 +33,19 @@ class Phone(Field):
         super().__init__(value)
 
 # Клас для дати народження з валідацією.
+# Змінено: збереження значення як рядка та додано метод для перетворення на об'єкт дати.
 class Birthday(Field):
     def __init__(self, value):
         try:
-            self.value = datetime.datetime.strptime(value, "%d.%m.%Y").date()
+            datetime.datetime.strptime(value, "%d.%m.%Y")
         except ValueError:
             raise ValueError("Невірний формат дати. Використовуйте DD.MM.YYYY")
+        super().__init__(value)
+
+    # Додано: метод для отримання об'єкта дати.
+    @property
+    def date(self):
+        return datetime.datetime.strptime(self.value, "%d.%m.%Y").date()
 
 # Клас для запису контакту.
 class Record:
@@ -76,7 +86,8 @@ class Record:
 
     def __str__(self):
         phones_str = "; ".join(p.value for p in self.phones)
-        birthday_str = f", birthday: {self.birthday.value.strftime('%d.%m.%Y')}" if self.birthday else ""
+        # Змінено: використовується новий атрибут `date` для форматування дати.
+        birthday_str = f", birthday: {self.birthday.date.strftime('%d.%m.%Y')}" if self.birthday else ""
         return f"Contact name: {self.name.value}, phones: {phones_str}{birthday_str}"
 
 # Клас адресної книги.
@@ -97,8 +108,9 @@ class AddressBook(UserDict):
         upcoming_birthdays = []
         today = datetime.date.today()
         for record in self.data.values():
-            if record.birthday and record.birthday.value:
-                birthday_this_year = record.birthday.value.replace(year=today.year)
+            # Змінено: тепер використовується атрибут `date`.
+            if record.birthday and record.birthday.date:
+                birthday_this_year = record.birthday.date.replace(year=today.year)
                 
                 if birthday_this_year < today:
                     birthday_this_year = birthday_this_year.replace(year=today.year + 1)
@@ -153,31 +165,31 @@ def change_contact(args, book):
         raise IndexError("Неповна команда. Введіть ім'я, старий телефон та новий телефон.")
     name, old_phone, new_phone = args
     record = book.find(name)
-    if record:
-        record.edit_phone(old_phone, new_phone)
-        return "Контакт оновлено."
-    raise KeyError("Контакт не знайдено.")
-
+    # Змінено: видалено if-перевірку, дозволяючи декоратору обробити AttributeError.
+    record.edit_phone(old_phone, new_phone)
+    return "Контакт оновлено."
+    
+# Змінено: функція `show_phone` тепер показує лише номери телефонів.
 @input_error
 def show_phone(args, book):
     if len(args) != 1:
         raise IndexError("Неповна команда. Введіть ім'я.")
     name = args[0]
+    # Змінено: видалено if-перевірку, дозволяючи декоратору обробити AttributeError.
     record = book.find(name)
-    if record:
-        return str(record)
-    raise KeyError("Контакт не знайдено.")
+    phones_str = "; ".join(p.value for p in record.phones)
+    return phones_str if phones_str else "У контакту немає номерів телефону."
 
 @input_error
 def add_birthday(args, book):
     if len(args) != 2:
         raise IndexError("Неповна команда. Введіть ім'я та дату народження (DD.MM.YYYY).")
     name, birthday = args
+    # Змінено: видалено if-перевірку, дозволяючи декоратору обробити AttributeError.
     record = book.find(name)
-    if record:
-        record.add_birthday(birthday)
-        return "Дату народження додано."
-    raise KeyError("Контакт не знайдено.")
+    record.add_birthday(birthday)
+    return "Дату народження додано."
+    
 
 @input_error
 def show_birthday(args, book):
@@ -185,12 +197,12 @@ def show_birthday(args, book):
         raise IndexError("Неповна команда. Введіть ім'я.")
     name = args[0]
     record = book.find(name)
-    if record:
-        if record.birthday:
-            return f"Дата народження {record.name.value}: {record.birthday.value.strftime('%d.%m.%Y')}"
-        else:
-            return "У контакту не вказано дату народження."
-    raise KeyError("Контакт не знайдено.")
+    # Змінено: використовується атрибут `date.
+    if record.birthday:
+        return f"Дата народження {record.name.value}: {record.birthday.date.strftime('%d.%m.%Y')}"
+    else:
+        return "У контакту не вказано дату народження."
+    
 
 @input_error
 def birthdays(args, book):
@@ -209,37 +221,36 @@ def main():
     print("Вітаю! Я ваш бот-помічник. Чим можу допомогти?")
     print("Список команд: add, change, phone, all, add-birthday, show-birthday, birthdays, hello, exit, close")
     while True:
-        try:
-            user_input = input("Введіть команду: ")
-            command, *args = parse_input(user_input)
-            
-            if command in ["close", "exit"]:
-                print("До побачення!")
-                break
-            elif command == "hello":
-                print("Як я можу вам допомогти?")
-            elif command == "add":
-                print(add_contact(args, book))
-            elif command == "change":
-                print(change_contact(args, book))
-            elif command == "phone":
-                print(show_phone(args, book))
-            elif command == "all":
-                print(book)
-            elif command == "add-birthday":
-                print(add_birthday(args, book))
-            elif command == "show-birthday":
-                print(show_birthday(args, book))
-            elif command == "birthdays":
-                print(birthdays(args, book))
-            else:
-                print("Невірна команда.")
-        except IndexError:
-            # Обробка порожнього вводу.
-            print("Будь ласка, введіть команду.")
-        except Exception as e:
-            # Обробка будь-якої іншої неочікуваної помилки.
-            print(f"Сталася невідома помилка: {e}")
+        user_input = input("Введіть команду: ")
+        command, *args = parse_input(user_input)
 
+        # Змінено: перенесено обробку порожнього вводу.
+        if command is None:
+            print("Будь ласка, введіть команду.")
+            continue
+
+        
+        if command in ["close", "exit"]:
+            print("До побачення!")
+            break
+        elif command == "hello":
+            print("Як я можу вам допомогти?")
+        elif command == "add":
+            print(add_contact(args, book))
+        elif command == "change":
+            print(change_contact(args, book))
+        elif command == "phone":
+            print(show_phone(args, book))
+        elif command == "all":
+            print(book)
+        elif command == "add-birthday":
+            print(add_birthday(args, book))
+        elif command == "show-birthday":
+            print(show_birthday(args, book))
+        elif command == "birthdays":
+            print(birthdays(args, book))
+        else:
+            print("Невірна команда.")
+            
 if __name__ == "__main__":
     main()
